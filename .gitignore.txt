@@ -1,0 +1,26 @@
+# Secrets — never commit
+.env
+*.key
+
+# Generated outputs (reproducible from the code)
+*.pdf
+*.html
+*_instagram.png
+*_caption.txt
+preview*
+
+# But DO keep the templates — they are source, not output
+!template.html
+!instagram_template.html
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

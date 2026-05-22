@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ d.title }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,900&family=Spline+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ---- theme: NF2 BioSolutions brand palette ------------------------- */
+  /* colours taken straight from NF2_LOGO.svg                            */
+  :root{
+    --paper:#ffffff;     /* the sheet itself        */
+    --page:#e7eef0;      /* area around the sheet   */
+    --ink:#173446;       /* NF2 navy  -- main text  */
+    --muted:#5d7079;     /* secondary text          */
+    --accent:#2eb77c;    /* NF2 green-teal -- rules, markers, quote */
+    --blue:#20a4d8;      /* NF2 blue   -- secondary accent */
+    --coral:#f85757;     /* NF2 coral  -- rare pop  */
+    --hair:#d6e0e3;      /* thin divider lines      */
+    --wash:#eaf6f0;      /* faint teal fill         */
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0;}
+
+  body{
+    background:var(--page);
+    color:var(--ink);
+    font-family:"Spline Sans",sans-serif;
+    font-size:10.5pt;
+    line-height:1.52;
+    -webkit-font-smoothing:antialiased;
+    padding:32px 16px;
+  }
+
+  /* the A4 sheet ------------------------------------------------------- */
+  .sheet{
+    background:var(--paper);
+    width:210mm;
+    margin:0 auto;
+    padding:16mm 19mm;
+  }
+  /* min-height + shadow are SCREEN-ONLY. In print the sheet must be free
+     to shrink to its content -- a fixed 297mm height is a knife-edge that
+     tips the footer onto a second page on the slightest rounding. */
+  @media screen{
+    .sheet{
+      min-height:297mm;
+      box-shadow:0 18px 50px rgba(23,52,70,.20);
+    }
+  }
+
+  /* masthead: logo + conference kicker -------------------------------- */
+  .masthead{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:1.2em;
+    padding-bottom:.8em;
+    border-bottom:2px solid var(--accent);
+  }
+  .logo{height:40px;width:auto;display:block;}
+  .kicker{
+    font-size:8pt;
+    font-weight:600;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--accent);
+    text-align:right;
+  }
+  .kicker .dot{color:var(--muted);margin:0 .45em;}
+
+  /* title block -------------------------------------------------------- */
+  h1{
+    font-family:"Fraunces",serif;
+    font-weight:900;
+    font-size:26pt;
+    line-height:1.07;
+    letter-spacing:-.015em;
+    margin:.5em 0 .1em;
+  }
+  .subtitle{
+    font-family:"Fraunces",serif;
+    font-weight:500;
+    font-size:12.5pt;
+    font-style:italic;
+    color:var(--muted);
+  }
+  .byline{
+    margin-top:.6em;
+    padding-top:.5em;
+    border-top:1px solid var(--hair);
+    font-size:9pt;
+    color:var(--muted);
+  }
+  .byline strong{color:var(--ink);font-weight:600;}
+
+  /* dek (lead paragraph) with editorial drop-cap ----------------------- */
+  .dek{
+    font-size:11.5pt;
+    line-height:1.48;
+    margin:.85em 0 .95em;
+  }
+  .dek::first-letter{
+    font-family:"Fraunces",serif;
+    font-weight:900;
+    font-size:40pt;
+    float:left;
+    line-height:.78;
+    margin:5px 9px 0 0;
+    color:var(--accent);
+  }
+
+  /* featured slides / graphs ------------------------------------------ */
+  .figures{
+    display:flex;
+    gap:13px;
+    margin:.8em 0 1em;
+  }
+  .figure{flex:1;margin:0;min-width:0;}
+  .figure:only-child{max-width:68%;margin-inline:auto;}
+  .figure img{
+    width:100%;
+    max-height:40mm;
+    object-fit:contain;
+    background:#fff;
+    border:1px solid var(--hair);
+    border-radius:4px;
+  }
+  .figure figcaption{
+    font-size:8pt;
+    color:var(--muted);
+    line-height:1.3;
+    margin-top:.4em;
+    padding-left:.6em;
+    border-left:2px solid var(--blue);
+  }
+
+  /* body sections ------------------------------------------------------ */
+  section{margin-bottom:.78em;}
+  section h2{
+    font-family:"Fraunces",serif;
+    font-weight:600;
+    font-size:13pt;
+    margin-bottom:.14em;
+  }
+  section h2::before{
+    content:"";
+    display:inline-block;
+    width:17px;height:2px;
+    background:var(--accent);
+    vertical-align:middle;
+    margin-right:8px;
+  }
+  section p{margin-bottom:.4em;}
+  section p:last-child{margin-bottom:0;}
+
+  /* pull quote --------------------------------------------------------- */
+  .pullquote{
+    font-family:"Fraunces",serif;
+    font-weight:500;
+    font-size:14pt;
+    font-style:italic;
+    line-height:1.3;
+    color:var(--ink);
+    border-left:3px solid var(--accent);
+    padding:.1em 0 .1em 1em;
+    margin:.95em 0;
+  }
+
+  /* key takeaways callout --------------------------------------------- */
+  .takeaways{
+    background:var(--wash);
+    border:1px solid var(--hair);
+    border-top:3px solid var(--accent);
+    padding:.9em 1.2em;
+    margin:.95em 0 .8em;
+  }
+  .takeaways h3{
+    font-size:8pt;
+    font-weight:600;
+    letter-spacing:.15em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin-bottom:.5em;
+  }
+  .takeaways ul{list-style:none;}
+  .takeaways li{
+    position:relative;
+    padding-left:1.35em;
+    margin-bottom:.32em;
+    font-size:10pt;
+    line-height:1.4;
+  }
+  .takeaways li:last-child{margin-bottom:0;}
+  .takeaways li::before{
+    content:"";
+    position:absolute;left:0;top:.44em;
+    width:6px;height:6px;
+    background:var(--accent);
+    border-radius:50%;
+  }
+
+  /* footer ------------------------------------------------------------- */
+  footer{
+    margin-top:.85em;
+    padding-top:.65em;
+    border-top:1px solid var(--hair);
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:1em;
+    font-size:8pt;
+    color:var(--muted);
+  }
+  .topics span{
+    display:inline-block;
+    border:1px solid var(--blue);
+    color:var(--blue);
+    border-radius:999px;
+    padding:.14em .68em;
+    margin:0 .28em .28em 0;
+  }
+
+  /* ---- print rules: the same file becomes the PDF -------------------- */
+  @page{ size:A4; margin:0; }
+  @media print{
+    body{background:none;padding:0;}
+    .sheet{
+      width:auto;
+      margin:0;
+      padding:13mm 19mm;
+    }
+    section,.pullquote,.takeaways,.figures{break-inside:avoid;}
+  }
+</style>
+</head>
+<body>
+  <article class="sheet">
+
+    <header>
+      <div class="masthead">
+        {% if logo_uri %}
+        <img class="logo" src="{{ logo_uri }}" alt="organisation logo">
+        {% else %}<span></span>{% endif %}
+        <div class="kicker">
+          {% if meta.conference %}{{ meta.conference }}{% else %}Conference Talk{% endif %}
+          {% if meta.date %}<span class="dot">&bull;</span>{{ meta.date }}{% endif %}
+        </div>
+      </div>
+      <h1>{{ d.title }}</h1>
+      {% if d.subtitle %}<p class="subtitle">{{ d.subtitle }}</p>{% endif %}
+      {% if d.speakers %}
+      <p class="byline">Presented by <strong>{{ d.speakers | join(", ") }}</strong></p>
+      {% endif %}
+    </header>
+
+    <p class="dek">{{ d.dek }}</p>
+
+    {% if figures %}
+    <div class="figures">
+      {% for fig in figures %}
+      <figure class="figure">
+        <img src="{{ fig.uri }}" alt="{{ fig.caption }}">
+        {% if fig.caption %}<figcaption>{{ fig.caption }}</figcaption>{% endif %}
+      </figure>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% for s in d.sections %}
+    <section>
+      <h2>{{ s.heading }}</h2>
+      {% for para in s.paragraphs %}<p>{{ para }}</p>{% endfor %}
+    </section>
+    {% endfor %}
+
+    {% if d.pull_quote %}
+    <blockquote class="pullquote">&ldquo;{{ d.pull_quote }}&rdquo;</blockquote>
+    {% endif %}
+
+    {% if d.key_takeaways %}
+    <aside class="takeaways">
+      <h3>Key takeaways</h3>
+      <ul>
+        {% for t in d.key_takeaways %}<li>{{ t }}</li>{% endfor %}
+      </ul>
+    </aside>
+    {% endif %}
+
+    <footer>
+      <div class="topics">
+        {% for tag in d.topics %}<span>{{ tag }}</span>{% endfor %}
+      </div>
+      <div>Summary generated from the talk transcript and slides.</div>
+    </footer>
+
+  </article>
+</body>
+</html>

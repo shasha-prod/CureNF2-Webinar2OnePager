@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,900&family=Spline+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* NF2 brand palette -- same colours as the one-pager template */
+  :root{
+    --paper:#ffffff; --ink:#173446; --muted:#5d7079;
+    --accent:#2eb77c; --blue:#20a4d8; --coral:#f85757; --hair:#d6e0e3;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{width:1080px;height:1350px;}            /* fixed IG portrait 4:5 */
+  body{
+    font-family:"Spline Sans",sans-serif;
+    color:var(--ink);
+    background:var(--paper);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  .post{width:1080px;height:1350px;display:flex;flex-direction:column;}
+  .body{flex:1;padding:74px 72px 44px;display:flex;flex-direction:column;}
+
+  /* header: logo + conference kicker ---------------------------------- */
+  .head{display:flex;align-items:center;justify-content:space-between;gap:24px;}
+  .logo{height:74px;width:auto;display:block;}
+  .kicker{
+    font-size:19px;font-weight:600;letter-spacing:.15em;
+    text-transform:uppercase;color:var(--accent);text-align:right;
+  }
+  .rule{height:3px;background:var(--accent);margin-top:28px;}
+
+  /* headline + points are centred in the space between header and CTA */
+  .main{flex:1;display:flex;flex-direction:column;justify-content:center;}
+
+  /* headline ---------------------------------------------------------- */
+  .tagbar{width:66px;height:8px;background:var(--coral);
+          border-radius:4px;margin:0 0 24px;}
+  h1{
+    font-family:"Fraunces",serif;font-weight:900;
+    font-size:62px;line-height:1.07;letter-spacing:-.015em;
+  }
+  .talk{
+    font-family:"Fraunces",serif;font-style:italic;font-weight:500;
+    font-size:25px;color:var(--muted);margin-top:18px;
+  }
+
+  /* the three points -------------------------------------------------- */
+  .points{margin-top:50px;display:flex;flex-direction:column;}
+  .point{display:flex;align-items:flex-start;gap:26px;padding:26px 0;}
+  .point + .point{border-top:1px solid var(--hair);}
+  .num{
+    flex:none;width:60px;height:60px;border-radius:50%;
+    background:var(--accent);color:#fff;
+    font-weight:600;font-size:28px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .ptext{font-size:31px;line-height:1.33;padding-top:7px;}
+
+  /* call-to-action band (the whole point of the post) ----------------- */
+  .cta{background:var(--accent);color:#fff;padding:46px 72px;}
+  .cta .big{font-size:34px;font-weight:600;line-height:1.24;}
+  .cta .sub{font-size:22px;margin-top:11px;color:rgba(255,255,255,.85);}
+</style>
+</head>
+<body>
+  <div class="post">
+    <div class="body">
+
+      <div class="head">
+        {% if logo_uri %}
+        <img class="logo" src="{{ logo_uri }}" alt="organisation logo">
+        {% else %}<span></span>{% endif %}
+        <div class="kicker">
+          {% if meta.conference %}{{ meta.conference }}{% else %}Webinar Recap{% endif %}
+        </div>
+      </div>
+      <div class="rule"></div>
+
+      <div class="main">
+        <div class="tagbar"></div>
+        <h1>{{ d.instagram.headline }}</h1>
+        {% if d.title %}<div class="talk">From the talk: {{ d.title }}</div>{% endif %}
+
+        <div class="points">
+          {% for p in d.instagram.points %}
+          <div class="point">
+            <div class="num">{{ loop.index }}</div>
+            <div class="ptext">{{ p }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+    </div>
+
+    <div class="cta">
+      <div class="big">The full one-pager is now on our website.</div>
+      <div class="sub">{% if url %}{{ url }}{% else %}Link in bio.{% endif %}</div>
+    </div>
+  </div>
+</body>
+</html>
