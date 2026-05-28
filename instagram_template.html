@@ -46,9 +46,12 @@
     font-family:"Fraunces",serif;font-style:italic;font-weight:500;
     font-size:25px;color:var(--muted);margin-top:18px;
   }
+  .speakers{
+    font-size:22px;font-weight:600;color:var(--blue);margin-top:10px;
+  }
 
   /* the three points -------------------------------------------------- */
-  .points{margin-top:50px;display:flex;flex-direction:column;}
+  .points{margin-top:40px;display:flex;flex-direction:column;}
   .point{display:flex;align-items:flex-start;gap:26px;padding:26px 0;}
   .point + .point{border-top:1px solid var(--hair);}
   .num{
@@ -83,9 +86,10 @@
         <div class="tagbar"></div>
         <h1>{{ d.instagram.headline }}</h1>
         {% if d.title %}<div class="talk">From the talk: {{ d.title }}</div>{% endif %}
+        {% if d.speakers %}<div class="speakers">With {{ d.speakers | join(", ") }}</div>{% endif %}
 
         <div class="points">
-          {% for p in d.instagram.points %}
+          {% for p in d.key_takeaways[:3] %}
           <div class="point">
             <div class="num">{{ loop.index }}</div>
             <div class="ptext">{{ p }}</div>

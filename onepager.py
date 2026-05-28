@@ -25,11 +25,16 @@ from __future__ import annotations
 import argparse
 import base64
 import io
+import json
 import os
 import random
 import re
 import sys
 import time
+import tomllib
+import urllib.error
+import urllib.request
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -67,9 +72,13 @@ class FeaturedSlide(BaseModel):
 
 
 class Instagram(BaseModel):
-    """Social copy that promotes the one-pager on Instagram."""
+    """Social copy that promotes the one-pager on Instagram.
+
+    Note: the post's bullet points are NOT stored here -- they are taken
+    directly from the article's `key_takeaways`, so the post and the page
+    always say the same thing.
+    """
     headline: str                  # punchy line for the image card (<= 8 words)
-    points: list[str]              # 3 short teaser points (<= 12 words each)
     caption: str                   # the IG caption prose (no hashtags, no URL)
     hashtags: list[str]            # 4-8 tags, each starting with '#'
 
@@ -258,13 +267,22 @@ HARD RULES — follow exactly:
 - Use ONLY information contained in the supplied transcript and slides. Do
   not add outside facts, statistics, names, history, or context. If it was
   not presented, it does not go in.
+- NO EXAGGERATION. This is a medical/health context, so accuracy is critical.
+  Do not overstate findings, hype results, or imply more certainty than the
+  speakers expressed. Never claim or imply a cure, breakthrough, or guaranteed
+  outcome unless the speakers explicitly and unambiguously said so. Hedge as
+  the speakers hedged: if they said a treatment "may help" or is "in trials",
+  do not upgrade that to "works" or "is available". Prefer cautious, precise
+  wording over dramatic wording everywhere -- in the article AND the Instagram
+  copy.
 - `pull_quote` MUST be a near-verbatim sentence actually spoken in the
   transcript. Never invent or paraphrase a quote into existence.
 - Keep it genuinely ONE PAGE: 400-600 words total across `dek` + `sections`.
 - Write clear, lively, specific prose. No marketing fluff, no throat-clearing
   ("in today's fast-paced world"), no empty superlatives.
 - Produce 3-4 `sections`, each a real sub-topic of the talk; 3-5
-  `key_takeaways`; 3-6 `topics` (short tags).
+  `key_takeaways` ORDERED most important first (the first 3 are also used as
+  the Instagram post's points, so they must stand on their own); 3-6 `topics`.
 - `dek` is a single punchy lead paragraph (~40-60 words) that hooks the reader.
 - `featured_slides`: pick the slide(s) most worth showing in the article --
   ones with charts, data, diagrams, or key figures. Prefer just ONE; add a
@@ -273,10 +291,8 @@ HARD RULES — follow exactly:
   return an empty list. Each entry has the slide's 1-based number (as given
   in the SLIDE IMAGES section) and a caption of 12 words or fewer.
 - `instagram`: short social copy promoting this one-pager.
-  * `headline`: a punchy hook of 8 words or fewer for the post image.
-  * `points`: EXACTLY 3 of the most interesting takeaways, each 12 words or
-    fewer, in lively social voice -- specific and curiosity-driving, not the
-    formal phrasing used in `key_takeaways`.
+  * `headline`: a punchy but accurate hook of 8 words or fewer for the post
+    image. No hype, no overclaiming (see the NO EXAGGERATION rule).
   * `caption`: 2-4 natural sentences for the Instagram caption that hook the
     reader and make clear a full recap is now available. Do NOT include
     hashtags or any URL in this field.
@@ -367,7 +383,7 @@ def synthesize(client: genai.Client, transcript: str,
         system_instruction=SYSTEM_PROMPT,
         response_mime_type="application/json",
         response_schema=OnePager,
-        temperature=0.4,                # grounded + fluent, not inventive
+        temperature=0.2,                # low: literal, sticks to transcript
     )
     response = _generate_with_retry(
         client, model=MODEL, contents=contents, config=config)
@@ -431,15 +447,173 @@ def build_figures(data: OnePager, slides: Slides) -> list[dict]:
     return figures
 
 
+# ----------------------------------------------------------------------
+# YouTube thumbnail
+# ----------------------------------------------------------------------
+# A YouTube link comes in several shapes -- youtube.com/watch?v=ID,
+# youtu.be/ID, /embed/ID, /shorts/ID. We pull the 11-char video ID out of
+# whichever shape we got, then fetch YouTube's own thumbnail for it.
+_YT_ID = re.compile(
+    r'(?:v=|/embed/|/shorts/|youtu\.be/)([A-Za-z0-9_-]{11})')
+
+
+def youtube_video_id(url: str) -> str | None:
+    """Extract the 11-character video ID from any common YouTube URL form."""
+    match = _YT_ID.search(url)
+    return match.group(1) if match else None
+
+
+def fetch_youtube_thumbnail(url: str) -> str:
+    """Return a data URI for the video's thumbnail, or '' on any failure.
+
+    YouTube serves thumbnails at predictable URLs. The catch: `maxresdefault`
+    (1280x720) only exists if the uploader's source was that big -- for many
+    videos it 404s. `hqdefault` (480x360) is generated for EVERY video. So we
+    try the high-res one first and fall back to the one that always exists.
+    Any network problem just returns '' -- a missing thumbnail must never
+    break the page.
+    """
+    vid = youtube_video_id(url)
+    if not vid:
+        print(f"  note: could not find a video ID in '{url}' -- no thumbnail.")
+        return ""
+    candidates = [
+        f"https://img.youtube.com/vi/{vid}/maxresdefault.jpg",   # may 404
+        f"https://img.youtube.com/vi/{vid}/hqdefault.jpg",       # always exists
+    ]
+    for thumb_url in candidates:
+        try:
+            req = urllib.request.Request(
+                thumb_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = resp.read()
+            if len(data) < 1500:        # YouTube's "no image" placeholder is tiny
+                continue
+            b64 = base64.b64encode(data).decode("ascii")
+            return f"data:image/jpeg;base64,{b64}"
+        except (urllib.error.URLError, TimeoutError, OSError):
+            continue
+    print("  note: could not fetch a YouTube thumbnail -- using a text link.")
+    return ""
+
+
+def resolve_thumbnail(youtube_url: str, custom: Path | None) -> str:
+    """Pick the video thumbnail: a custom image if given, else auto-fetch."""
+    if custom:
+        return file_to_data_uri(custom)        # explicit override wins
+    if youtube_url:
+        return fetch_youtube_thumbnail(youtube_url)
+    return ""
+
+
+# ----------------------------------------------------------------------
+# SEO: JSON-LD structured data
+# ----------------------------------------------------------------------
+# Google reads JSON-LD anywhere on the page, so we emit it into the BODY
+# of the template -- which means it survives being pasted into WordPress
+# even when no SEO plugin is installed. We mark up an Article always, and
+# nest a VideoObject ONLY when we have a valid date (Google REQUIRES an
+# uploadDate for VideoObject; a missing/guessed date invalidates it). We
+# never fabricate fields -- absent data means a smaller, still-valid block.
+
+# date formats a human might plausibly type into --date or the config
+_DATE_FORMATS = [
+    "%Y-%m-%d",        # 2024-05-30
+    "%d/%m/%Y",        # 30/05/2024
+    "%m/%d/%Y",        # 05/30/2024
+    "%B %d, %Y",       # May 30, 2024
+    "%b %d, %Y",       # May 30, 2024 (abbrev)
+    "%d %B %Y",        # 30 May 2024
+    "%B %Y",           # May 2024  (day unknown)
+    "%Y",              # 2024      (year only)
+]
+
+
+def parse_iso_date(raw: str) -> str | None:
+    """Return an ISO 8601 date string (YYYY-MM-DD) or None if unparseable.
+
+    Google rejects non-ISO dates outright, so we convert known human
+    formats and refuse anything we cannot parse with confidence -- a wrong
+    date is worse than no date.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    for fmt in _DATE_FORMATS:
+        try:
+            dt = datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+        # partial formats: pad sensibly so the result is still valid ISO
+        if fmt == "%Y":
+            return f"{dt.year:04d}-01-01"
+        if fmt == "%B %Y":
+            return f"{dt.year:04d}-{dt.month:02d}-01"
+        return dt.strftime("%Y-%m-%d")
+    return None
+
+
+def build_jsonld(data: OnePager, meta: dict, page_url: str = "") -> str:
+    """Build a JSON-LD structured-data block: Article (+ VideoObject if able).
+
+    Returns a complete <script type="application/ld+json"> string, or '' if
+    there is nothing worth emitting. Only fields backed by real page content
+    are included -- never invented.
+    """
+    # description: reuse the article's lead paragraph, trimmed
+    description = (data.dek or "").strip()
+    if len(description) > 250:
+        description = description[:247].rstrip() + "..."
+
+    article: dict = {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": data.title[:110],        # schema caps headline at 110
+        "description": description,
+    }
+    if data.speakers:
+        article["author"] = [{"@type": "Person", "name": s}
+                             for s in data.speakers]
+    iso_date = parse_iso_date(meta.get("date", ""))
+    if iso_date:
+        article["datePublished"] = iso_date
+    if page_url:
+        article["mainEntityOfPage"] = {"@type": "WebPage", "@id": page_url}
+
+    blocks = [article]
+
+    # VideoObject -- only if Google's required trio can be satisfied:
+    # name + uploadDate + (a video URL). No date -> no VideoObject.
+    youtube = meta.get("youtube", "")
+    if youtube and iso_date:
+        video = {
+            "@context": "https://schema.org",
+            "@type": "VideoObject",
+            "name": data.title[:110],
+            "description": description,
+            "uploadDate": iso_date,                 # Google REQUIRES this
+            "embedUrl": youtube,
+        }
+        blocks.append(video)
+
+    payload = blocks[0] if len(blocks) == 1 else blocks
+    return ('<script type="application/ld+json">\n'
+            + json.dumps(payload, indent=2, ensure_ascii=False)
+            + '\n</script>')
+
+
 def render_html(data: OnePager, meta: dict, template_dir: Path,
-                logo_uri: str = "", figures: list[dict] | None = None) -> str:
+                logo_uri: str = "", figures: list[dict] | None = None,
+                thumb_uri: str = "", page_url: str = "") -> str:
     env = Environment(
         loader=FileSystemLoader(str(template_dir)),
         autoescape=select_autoescape(["html"]),
     )
     template = env.get_template("template.html")
-    return template.render(d=data, meta=meta,
-                           logo_uri=logo_uri, figures=figures or [])
+    jsonld = build_jsonld(data, meta, page_url)
+    return template.render(d=data, meta=meta, logo_uri=logo_uri,
+                           figures=figures or [], thumb_uri=thumb_uri,
+                           jsonld=jsonld)
 
 
 def html_to_pdf(html_path: Path, pdf_path: Path) -> None:
@@ -501,10 +675,14 @@ def render_instagram_html(data: OnePager, meta: dict, template_dir: Path,
 
 
 def build_caption(data: OnePager, url: str = "") -> str:
-    """Assemble the paste-ready Instagram caption from the structured copy."""
+    """Assemble the paste-ready Instagram caption from the structured copy.
+
+    The bullet points come from the article's top 3 key_takeaways, so the
+    post and the one-pager always say the same thing.
+    """
     ig = data.instagram
     lines = [ig.caption.strip(), ""]
-    for point in ig.points:                       # the 3 points, scannable
+    for point in data.key_takeaways[:3]:          # top 3 takeaways, scannable
         lines.append(f"\u2022 {point}")
     lines.append("")
     if url:
@@ -516,15 +694,140 @@ def build_caption(data: OnePager, url: str = "") -> str:
     return "\n".join(lines)
 
 
+def _slugify(text: str) -> str:
+    """Turn a title into a clean URL slug: 'Avastin & NF2!' -> 'avastin-nf2'."""
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text)     # non-alphanumerics -> hyphen
+    return text.strip("-")[:60]                 # trim and cap length
+
+
+def build_seo_sheet(data: OnePager, meta: dict, page_url: str = "") -> str:
+    """A paste-ready SEO sheet for a WordPress plugin (Rank Math / Yoast).
+
+    These are SUGGESTED values -- the human pastes them into the plugin's
+    fields. Title and description are length-capped to Google's display
+    limits so they don't get truncated in search results.
+    """
+    title = data.title.strip()
+    # SEO title: Google shows ~60 chars; append the org name if it fits
+    org = meta.get("conference", "").split(" - ")[0].strip()
+    seo_title = title
+    if org and org.lower() not in title.lower():
+        candidate = f"{title} | {org}"
+        seo_title = candidate if len(candidate) <= 60 else title
+    seo_title = seo_title[:60]
+
+    # meta description: ~155 chars, from the lead paragraph
+    desc = " ".join((data.dek or "").split())
+    if len(desc) > 155:
+        desc = desc[:152].rstrip() + "..."
+
+    slug = _slugify(title)
+    keyword = (data.topics[0] if data.topics else title).strip()
+
+    lines = [
+        "SEO SHEET -- paste these into your WordPress SEO plugin",
+        "(Rank Math or Yoast: edit the page -> find the SEO fields)",
+        "=" * 58,
+        "",
+        f"SEO TITLE (<=60 chars, currently {len(seo_title)}):",
+        f"  {seo_title}",
+        "",
+        f"META DESCRIPTION (<=155 chars, currently {len(desc)}):",
+        f"  {desc}",
+        "",
+        "URL SLUG (the page's web address ending):",
+        f"  {slug}",
+        "",
+        "FOCUS KEYWORD (the main term this page should rank for):",
+        f"  {keyword}",
+    ]
+    if page_url:
+        lines += ["", "CANONICAL URL:", f"  {page_url}"]
+    lines += [
+        "",
+        "-" * 58,
+        "Note: these are suggestions. Review them before publishing --",
+        "especially the focus keyword, which should match what people",
+        "actually search for.",
+    ]
+    return "\n".join(lines)
+
+
 # ======================================================================
 # 7. ORCHESTRATION
 # ======================================================================
+DEFAULT_CONFIG = "onepager.toml"
+
+# Config keys that name a file/path -- these get wrapped in Path() so the
+# rest of the program sees the same type whether a value came from a flag
+# (argparse already does type=Path) or from the TOML file (plain strings).
+_PATH_KEYS = {"transcript", "logo", "thumbnail", "out"}
+# 'slides' is special: always a LIST of Paths, never a single one.
+
+
+def load_config(explicit: Path | None) -> dict:
+    """Load a TOML config: the one named with --config, else onepager.toml.
+
+    Returns {} when there is nothing to load. A bad TOML file is a hard
+    error (the user clearly meant to use it); a simply-absent default file
+    is silent (it is optional by design).
+    """
+    if explicit is not None:
+        path = explicit
+        if not path.exists():
+            sys.exit(f"Config file not found: {path}")
+    else:
+        path = Path(DEFAULT_CONFIG)
+        if not path.exists():
+            return {}                       # no default file -- that's fine
+
+    try:
+        with path.open("rb") as fh:         # tomllib requires binary mode
+            config = tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        sys.exit(f"Config file {path} is not valid TOML: {exc}")
+    print(f"- loaded config from {path}")
+    return config
+
+
+def merge_config(args: argparse.Namespace, config: dict) -> None:
+    """Layer the config UNDER the command line, in place on `args`.
+
+    Precedence (low -> high): code default < config file < CLI flag.
+    Rule: the config only fills a value the user did NOT pass on the CLI.
+    We detect "did not pass" by the value still equalling argparse's
+    default -- so an explicit flag always wins over the file.
+    """
+    defaults = {
+        "transcript": None, "slides": None, "out": "one-pager",
+        "logo": None, "conference": "", "date": "", "url": "",
+        "youtube": "", "thumbnail": None, "pdf": False, "no_instagram": False,
+        "no_seo": False,
+    }
+    for key, default in defaults.items():
+        if getattr(args, key) != default:
+            continue                        # user passed it on the CLI -- keep
+        if key not in config:
+            continue                        # not in the file either -- skip
+        value = config[key]
+        if key == "slides":
+            items = value if isinstance(value, list) else [value]
+            setattr(args, key, [Path(p) for p in items])
+        elif key in _PATH_KEYS:
+            setattr(args, key, Path(value))
+        else:
+            setattr(args, key, value)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Generate a one-pager from a conference talk.")
-    ap.add_argument("--transcript", required=True, type=Path,
+    ap.add_argument("--config", type=Path, default=None,
+                    help=f"TOML config file (auto-loads {DEFAULT_CONFIG} if present)")
+    ap.add_argument("--transcript", type=Path, default=None,
                     help=".srt or .txt transcript file")
-    ap.add_argument("--slides", required=True, nargs="+", type=Path,
+    ap.add_argument("--slides", nargs="+", type=Path, default=None,
                     help="one or more slide inputs: a .pptx, a slide image, "
                          "a folder of PNGs -- or several of these together")
     ap.add_argument("--out", default="one-pager",
@@ -534,11 +837,30 @@ def main() -> None:
     ap.add_argument("--conference", default="", help="conference name (metadata)")
     ap.add_argument("--date", default="", help="talk date (metadata)")
     ap.add_argument("--url", default="",
-                    help="website URL of the published one-pager (Instagram CTA)")
-    ap.add_argument("--no-pdf", action="store_true", help="write HTML only")
+                    help="public URL where this recap is published; used as the "
+                         "Instagram CTA link AND the page's canonical URL for SEO")
+    ap.add_argument("--youtube", default="",
+                    help="URL of the talk recording, linked at the foot of the page")
+    ap.add_argument("--thumbnail", type=Path, default=None,
+                    help="custom video thumbnail image; overrides the auto-fetched "
+                         "YouTube thumbnail")
+    ap.add_argument("--pdf", action="store_true",
+                    help="also export a PDF (HTML is always written)")
     ap.add_argument("--no-instagram", action="store_true",
                     help="skip the Instagram post image and caption")
+    ap.add_argument("--no-seo", action="store_true",
+                    help="skip the SEO sheet (structured data stays in the HTML)")
     args = ap.parse_args()
+
+    # layer the config file UNDER the CLI flags, then enforce the values
+    # that are mandatory no matter where they came from
+    merge_config(args, load_config(args.config))
+    missing = [name for name in ("transcript", "slides")
+               if getattr(args, name) is None]
+    if missing:
+        sys.exit("Missing required input(s): "
+                 + ", ".join("--" + m for m in missing)
+                 + " -- pass them as flags or set them in the config file.")
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -560,7 +882,8 @@ def main() -> None:
 
     print(f"- calling {MODEL} ...")
     client = genai.Client(api_key=api_key)
-    meta = {"conference": args.conference, "date": args.date}
+    meta = {"conference": args.conference, "date": args.date,
+            "youtube": args.youtube}
     data = synthesize(client, transcript, slides, meta)
 
     words = (len(data.dek.split())
@@ -575,17 +898,29 @@ def main() -> None:
     if figures:
         print(f"  embedding {len(figures)} featured slide(s).")
 
+    # resolve the video thumbnail (custom image, else auto-fetch from YouTube)
+    thumb_uri = resolve_thumbnail(args.youtube, args.thumbnail)
+    if thumb_uri:
+        print("  video thumbnail resolved.")
+
     template_dir = Path(__file__).parent
     html = render_html(data, meta, template_dir,
-                       logo_uri=logo_uri, figures=figures)
+                       logo_uri=logo_uri, figures=figures,
+                       thumb_uri=thumb_uri, page_url=args.url)
     html_path = Path(f"{args.out}.html")
     html_path.write_text(html, encoding="utf-8")
     print(f"- wrote {html_path}")
 
-    if not args.no_pdf:
+    if args.pdf:
         pdf_path = Path(f"{args.out}.pdf")
         html_to_pdf(html_path, pdf_path)
         print(f"- wrote {pdf_path}")
+
+    if not args.no_seo:
+        seo_path = Path(f"{args.out}_seo.txt")
+        seo_path.write_text(build_seo_sheet(data, meta, args.url),
+                            encoding="utf-8")
+        print(f"- wrote {seo_path}")
 
     if not args.no_instagram:
         ig_html = render_instagram_html(data, meta, template_dir,

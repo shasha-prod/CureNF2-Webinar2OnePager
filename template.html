@@ -71,6 +71,56 @@
   }
   .kicker .dot{color:var(--muted);margin:0 .45em;}
 
+  /* title row: title block on the left, video thumbnail on the right -- */
+  .titlerow{
+    display:flex;
+    align-items:flex-start;
+    gap:20px;
+    margin-top:.5em;
+  }
+  .titleblock{flex:1;min-width:0;}
+
+  /* clickable video thumbnail with a play badge ----------------------- */
+  .videolink{
+    flex:none;
+    width:200px;
+    text-decoration:none;
+    display:block;
+  }
+  .thumbwrap{
+    position:relative;
+    border-radius:6px;
+    overflow:hidden;
+    border:1px solid var(--hair);
+    line-height:0;
+  }
+  .thumbwrap img{width:100%;height:auto;display:block;}
+  .playbadge{
+    position:absolute;
+    top:50%;left:50%;
+    transform:translate(-50%,-50%);
+    width:54px;height:54px;
+    background:var(--coral);
+    border-radius:50%;
+  }
+  /* the play triangle, drawn with borders so no extra asset is needed */
+  .playbadge::after{
+    content:"";
+    position:absolute;
+    top:50%;left:54%;
+    transform:translate(-50%,-50%);
+    border-style:solid;
+    border-width:11px 0 11px 18px;
+    border-color:transparent transparent transparent #ffffff;
+  }
+  .watchcap{
+    margin-top:.42em;
+    font-size:8.5pt;
+    font-weight:600;
+    color:var(--blue);
+    text-align:center;
+  }
+
   /* title block -------------------------------------------------------- */
   h1{
     font-family:"Fraunces",serif;
@@ -78,7 +128,7 @@
     font-size:26pt;
     line-height:1.07;
     letter-spacing:-.015em;
-    margin:.5em 0 .1em;
+    margin:0 0 .1em;
   }
   .subtitle{
     font-family:"Fraunces",serif;
@@ -169,13 +219,13 @@
     margin:.95em 0;
   }
 
-  /* key takeaways callout --------------------------------------------- */
+  /* key takeaways callout -- now sits directly under the title/dek ----- */
   .takeaways{
     background:var(--wash);
     border:1px solid var(--hair);
     border-top:3px solid var(--accent);
     padding:.9em 1.2em;
-    margin:.95em 0 .8em;
+    margin:0 0 1.1em;
   }
   .takeaways h3{
     font-size:8pt;
@@ -214,6 +264,15 @@
     font-size:8pt;
     color:var(--muted);
   }
+  .foot-right{text-align:right;}
+  .watch{
+    display:inline-block;
+    margin-bottom:.35em;
+    font-size:9pt;
+    font-weight:600;
+    color:var(--blue);
+    text-decoration:none;
+  }
   .topics span{
     display:inline-block;
     border:1px solid var(--blue);
@@ -234,10 +293,37 @@
     }
     section,.pullquote,.takeaways,.figures{break-inside:avoid;}
   }
+
+  /* ---- mobile: phones and narrow screens ----------------------------- */
+  /* scoped to screen only, so it never affects the printed PDF.          */
+  @media screen and (max-width: 768px){
+    body{ padding:12px; font-size:16px; }
+    .sheet{ width:100%; min-height:auto; padding:20px 16px; box-shadow:none; }
+    .masthead{ flex-direction:column; align-items:flex-start; gap:.8em; }
+    .kicker{ text-align:left; font-size:10px; line-height:1.4; }
+    .titlerow{ flex-direction:column; gap:16px; }
+    .videolink{ width:100%; }
+    h1{ font-size:32px; line-height:1.1; }
+    .subtitle{ font-size:18px; line-height:1.4; }
+    .byline{ font-size:14px; }
+    .dek{ font-size:16px; line-height:1.7; }
+    .dek::first-letter{ font-size:48px; }
+    .figures{ flex-direction:column; }
+    .figure:only-child{ max-width:100%; }
+    .figure img{ max-height:none; }
+    section h2{ font-size:22px; line-height:1.3; }
+    section p{ font-size:16px; line-height:1.7; }
+    .pullquote{ font-size:22px; padding-left:.8em; }
+    .takeaways{ padding:1em; }
+    .takeaways li{ font-size:15px; line-height:1.6; }
+    footer{ flex-direction:column; gap:1em; }
+    .foot-right{ text-align:left; }
+  }
 </style>
 </head>
 <body>
   <article class="sheet">
+    {% if jsonld %}{{ jsonld | safe }}{% endif %}
 
     <header>
       <div class="masthead">
@@ -249,14 +335,36 @@
           {% if meta.date %}<span class="dot">&bull;</span>{{ meta.date }}{% endif %}
         </div>
       </div>
-      <h1>{{ d.title }}</h1>
-      {% if d.subtitle %}<p class="subtitle">{{ d.subtitle }}</p>{% endif %}
-      {% if d.speakers %}
-      <p class="byline">Presented by <strong>{{ d.speakers | join(", ") }}</strong></p>
-      {% endif %}
+      <div class="titlerow">
+        <div class="titleblock">
+          <h1>{{ d.title }}</h1>
+          {% if d.subtitle %}<p class="subtitle">{{ d.subtitle }}</p>{% endif %}
+          {% if d.speakers %}
+          <p class="byline">Presented by <strong>{{ d.speakers | join(", ") }}</strong></p>
+          {% endif %}
+        </div>
+        {% if thumb_uri and meta.youtube %}
+        <a class="videolink" href="{{ meta.youtube }}">
+          <div class="thumbwrap">
+            <img src="{{ thumb_uri }}" alt="Watch the talk recording">
+            <div class="playbadge"></div>
+          </div>
+          <div class="watchcap">Watch the recording</div>
+        </a>
+        {% endif %}
+      </div>
     </header>
 
     <p class="dek">{{ d.dek }}</p>
+
+    {% if d.key_takeaways %}
+    <aside class="takeaways">
+      <h3>Key takeaways</h3>
+      <ul>
+        {% for t in d.key_takeaways %}<li>{{ t }}</li>{% endfor %}
+      </ul>
+    </aside>
+    {% endif %}
 
     {% if figures %}
     <div class="figures">
@@ -280,20 +388,16 @@
     <blockquote class="pullquote">&ldquo;{{ d.pull_quote }}&rdquo;</blockquote>
     {% endif %}
 
-    {% if d.key_takeaways %}
-    <aside class="takeaways">
-      <h3>Key takeaways</h3>
-      <ul>
-        {% for t in d.key_takeaways %}<li>{{ t }}</li>{% endfor %}
-      </ul>
-    </aside>
-    {% endif %}
-
     <footer>
       <div class="topics">
         {% for tag in d.topics %}<span>{{ tag }}</span>{% endfor %}
       </div>
-      <div>Summary generated from the talk transcript and slides.</div>
+      <div class="foot-right">
+        {% if meta.youtube and not thumb_uri %}
+        <a class="watch" href="{{ meta.youtube }}">Watch the full recording &rarr;</a>
+        {% endif %}
+        <div>Summary generated from the talk transcript and slides.</div>
+      </div>
     </footer>
 
   </article>
